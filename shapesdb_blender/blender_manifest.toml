@@ -1,0 +1,15 @@
+schema_version = "1.0.0"
+id = "shapesdb"
+version = "0.1.0"
+name = "ShapesDB"
+tagline = "Version control and collaboration for 3D"
+maintainer = "ShapesDB"
+type = "add-on"
+website = "https://github.com/ShapesDB/blender"
+tags = ["Import-Export", "Pipeline"]
+blender_version_min = "4.2.0"
+license = ["SPDX:GPL-3.0-or-later"]
+
+[permissions]
+network = "Talks to your ShapesDB server to list, download and publish models"
+files = "Writes temporary files when importing and exporting models"
