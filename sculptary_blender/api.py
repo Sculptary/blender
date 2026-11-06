@@ -1,4 +1,4 @@
-"""ShapesDB API client using only the Python standard library (Blender ships no extras).
+"""Sculptary API client using only the Python standard library (Blender ships no extras).
 
 Kept free of `bpy` so it can be tested outside Blender.
 """
@@ -11,10 +11,10 @@ import uuid
 from typing import Any
 from urllib import error, parse, request
 
-USER_AGENT = "shapesdb-blender/0.1.0"
+USER_AGENT = "sculptary-blender/0.1.0"
 
 
-class ShapesDBError(Exception):
+class SculptaryError(Exception):
     def __init__(self, status: int, message: str):
         super().__init__(message)
         self.status = status
@@ -52,9 +52,9 @@ class Client:
                 msg = json.loads(exc.read() or b"{}").get("error", {}).get("message") or exc.reason
             except ValueError:
                 msg = str(exc.reason)
-            raise ShapesDBError(exc.code, str(msg)) from None
+            raise SculptaryError(exc.code, str(msg)) from None
         except error.URLError as exc:
-            raise ShapesDBError(0, f"Could not reach {self.host}: {exc.reason}") from None
+            raise SculptaryError(0, f"Could not reach {self.host}: {exc.reason}") from None
         return json.loads(data) if data else None
 
     def get(self, api_path: str, **query) -> Any:
@@ -73,7 +73,7 @@ class Client:
                     n += len(chunk)
                 return n
         except error.HTTPError as exc:
-            raise ShapesDBError(exc.code, f"Download failed ({exc.code})") from None
+            raise SculptaryError(exc.code, f"Download failed ({exc.code})") from None
 
     # --- Operations used by the add-on ------------------------------------
 
@@ -112,7 +112,7 @@ class Client:
 
 
 def encode_multipart(fields: dict[str, str], files: dict[str, str]) -> tuple[bytes, str]:
-    boundary = f"----shapesdb{uuid.uuid4().hex}"
+    boundary = f"----sculptary{uuid.uuid4().hex}"
     out = bytearray()
 
     def part(headers: str, payload: bytes) -> None:

@@ -1,15 +1,15 @@
 schema_version = "1.0.0"
-id = "shapesdb"
+id = "sculptary"
 version = "0.1.0"
-name = "ShapesDB"
+name = "Sculptary"
 tagline = "Version control and collaboration for 3D"
-maintainer = "ShapesDB"
+maintainer = "Sculptary"
 type = "add-on"
-website = "https://github.com/ShapesDB/blender"
+website = "https://github.com/Sculptary/blender"
 tags = ["Import-Export", "Pipeline"]
 blender_version_min = "4.2.0"
 license = ["SPDX:GPL-3.0-or-later"]
 
 [permissions]
-network = "Talks to your ShapesDB server to list, download and publish models"
+network = "Talks to your Sculptary server to list, download and publish models"
 files = "Writes temporary files when importing and exporting models"

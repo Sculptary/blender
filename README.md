@@ -1,16 +1,16 @@
-# ShapesDB for Blender
+# Sculptary for Blender
 
-Sign in to [ShapesDB](https://shapesdb.com), browse your repositories, import models into the scene,
+Sign in to [Sculptary](https://sculptary.com), browse your repositories, import models into the scene,
 check a file's version history, and publish the current scene as a GLB commit, all from the 3D Viewport
-sidebar (N panel, ShapesDB tab).
+sidebar (N panel, Sculptary tab).
 
-Every publish is a real Git commit in your repository, stored with Git LFS, and processed by ShapesDB
+Every publish is a real Git commit in your repository, stored with Git LFS, and processed by Sculptary
 for previews and geometry metadata.
 
 ## Install
 
 Blender 4.2 or newer. Download the zip from
-[Releases](https://github.com/ShapesDB/blender/releases) and use *Edit > Preferences > Get Extensions >
+[Releases](https://github.com/Sculptary/blender/releases) and use *Edit > Preferences > Get Extensions >
 Install from Disk*. Then add an access token (scopes `repo:write` and `user`) in the add-on preferences
 and press *Sign in*.
 
@@ -22,7 +22,7 @@ pull requests and side-by-side comparison inside Blender.
 
 ## Development
 
-The API client (`shapesdb_blender/api.py`) uses only the standard library and is unit-tested outside
+The API client (`sculptary_blender/api.py`) uses only the standard library and is unit-tested outside
 Blender:
 
 ```bash

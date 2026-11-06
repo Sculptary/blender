@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 from urllib import error
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "shapesdb_blender"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "sculptary_blender"))
 import api  # noqa: E402
 
 
@@ -36,14 +36,14 @@ def test_requests_carry_token_and_query():
     assert calls[1].full_url.endswith("/commits?path=m.glb")
 
 
-def test_http_errors_become_shapesdb_errors():
+def test_http_errors_become_sculptary_errors():
     def fail(req):
         raise error.HTTPError(req.full_url, 404, "Not Found", {}, io.BytesIO(b'{"error":{"message":"Repository not found."}}'))
 
     _open, _ = opener(fail)
     try:
         api.Client("https://x.test", opener=_open).repository("a/b")
-    except api.ShapesDBError as e:
+    except api.SculptaryError as e:
         assert e.status == 404 and e.message == "Repository not found."
     else:
         raise AssertionError("expected error")

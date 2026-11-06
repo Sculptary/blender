@@ -1,13 +1,13 @@
-"""Build dist/shapesdb-<version>.zip for installation as a Blender extension."""
+"""Build dist/sculptary-<version>.zip for installation as a Blender extension."""
 
 import pathlib
 import tomllib
 import zipfile
 
 root = pathlib.Path(__file__).parent
-pkg = root / "shapesdb_blender"
+pkg = root / "sculptary_blender"
 version = tomllib.loads((pkg / "blender_manifest.toml").read_text())["version"]
-out = root / "dist" / f"shapesdb-{version}.zip"
+out = root / "dist" / f"sculptary-{version}.zip"
 out.parent.mkdir(exist_ok=True)
 with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
     for f in sorted(pkg.rglob("*")):
