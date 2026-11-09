@@ -20,7 +20,7 @@ from bpy.props import BoolProperty, CollectionProperty, EnumProperty, IntPropert
 from bpy.types import AddonPreferences, Operator, Panel, PropertyGroup, UIList
 
 from .api import Client, SculptaryError
-from . import comparison, pulls
+from . import comparison, pulls, review
 
 ADDON = __package__ or __name__
 
@@ -135,6 +135,10 @@ class SculptaryState(PropertyGroup):
     compare_head: StringProperty(name="Head ref", description="Leave blank to use the selected branch")
     compare_path: StringProperty(name="Model path", description="Leave blank to use the selected model")
     compare_base_path: StringProperty(name="Previous path", description="Optional path before a rename")
+    review_models: CollectionProperty(type=review.SculptaryReviewModel)
+    review_model_index: IntProperty()
+    review_models_repo: StringProperty()
+    review_models_number: IntProperty()
     assets: CollectionProperty(type=SculptaryAsset)
     asset_index: IntProperty()
     history: CollectionProperty(type=SculptaryCommit)
@@ -527,11 +531,11 @@ class SCULPTARY_PT_publish(Panel):
 
 
 CLASSES = (
-    SculptaryPreferences, SculptaryRepo, SculptaryAsset, SculptaryBranch, SculptaryCommit, *pulls.DATA_CLASSES, SculptaryState,
+    SculptaryPreferences, SculptaryRepo, SculptaryAsset, SculptaryBranch, SculptaryCommit, *pulls.DATA_CLASSES, *review.DATA_CLASSES, SculptaryState,
     SCULPTARY_OT_sign_in, SCULPTARY_OT_refresh, SCULPTARY_OT_load_repository, SCULPTARY_OT_create_branch, SCULPTARY_OT_load_assets, SCULPTARY_OT_import, SCULPTARY_OT_history,
     SCULPTARY_OT_publish, SCULPTARY_OT_create_repo, SCULPTARY_OT_open_in_browser,
     SCULPTARY_UL_repos, SCULPTARY_UL_assets, SCULPTARY_UL_branches, SCULPTARY_PT_main, SCULPTARY_PT_models, SCULPTARY_PT_publish,
-    *pulls.UI_CLASSES, *comparison.UI_CLASSES,
+    *pulls.UI_CLASSES, *comparison.UI_CLASSES, *review.UI_CLASSES,
 )
 
 
@@ -540,9 +544,13 @@ def register():
         bpy.utils.register_class(cls)
     bpy.types.WindowManager.sculptary = bpy.props.PointerProperty(type=SculptaryState)
     bpy.types.Scene.sculptary_review_working = bpy.props.PointerProperty(type=bpy.types.Scene)
+    bpy.types.Scene.sculptary_pin_body = StringProperty(name="Comment", maxlen=65536)
+    bpy.types.Scene.sculptary_pin_side = EnumProperty(name="Side", items=[("head", "Head", ""), ("base", "Base", "")])
 
 
 def unregister():
+    del bpy.types.Scene.sculptary_pin_body
+    del bpy.types.Scene.sculptary_pin_side
     del bpy.types.Scene.sculptary_review_working
     del bpy.types.WindowManager.sculptary
     for cls in reversed(CLASSES):

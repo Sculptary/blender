@@ -39,3 +39,5 @@ jobs:
         run: '"$RUNNER_TEMP/sculptary-blender/blender-${BLENDER_VERSION}-linux-x64/blender" --background --factory-startup --python-exit-code 1 --python tests/blender_pulls.py'
       - name: Native comparison checks
         run: '"$RUNNER_TEMP/sculptary-blender/blender-${BLENDER_VERSION}-linux-x64/blender" --background --factory-startup --python-exit-code 1 --python tests/blender_comparison.py'
+      - name: Native review and cursor pin checks
+        run: '"$RUNNER_TEMP/sculptary-blender/blender-${BLENDER_VERSION}-linux-x64/blender" --background --factory-startup --python-exit-code 1 --python tests/blender_review.py'

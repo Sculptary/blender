@@ -23,6 +23,7 @@ class SculptaryPull(PropertyGroup):
 
 
 def clear_review(s, *, drafts=False):
+    _app().review.clear_models(s)
     s.pulls.clear()
     s.pull_repo = ""
     s.pull_index = -1
@@ -119,6 +120,7 @@ class SCULPTARY_OT_load_pull(Operator):
         app = _app()
         s, repo = app.state(context), app.current_repo(context)
         number = self.number or s.pull_lookup_number
+        app.review.clear_models(s)
         s.review_repo, s.review_number, s.review_json, s.pull_error = "", 0, "", ""
         if not repo or number < 1:
             return {"CANCELLED"}

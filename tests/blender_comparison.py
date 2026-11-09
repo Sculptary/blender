@@ -102,9 +102,14 @@ try:
     bpy.ops.object.select_all(action="DESELECT")
     cube.select_set(True)
     bpy.context.view_layer.objects.active = cube
+    parent = bpy.data.objects.new("Assembly", None)
+    working.collection.objects.link(parent)
+    parent.location.x = 2
+    parent.select_set(True)
+    cube.parent = parent
     with tempfile.TemporaryDirectory(prefix="sculptary-comparison-fixture-") as folder:
         base, head = Path(folder) / "base.glb", Path(folder) / "head.glb"
-        cube.location = (5, 2, 1)
+        cube.location = (3, 2, 1)
         bpy.ops.export_scene.gltf(filepath=str(base), export_format="GLB", use_selection=True)
         add_animation(base)
         cube.location.x += 0.25
@@ -131,6 +136,8 @@ try:
         expected_head = {(x, y, z) for x in (3.25, 7.25) for y in (1., 3.) for z in (0., 2.)}
         assert local_points(review, "base") == expected_base
         assert local_points(review, "head") == expected_head, "Comparison hid the authored placement or scale change"
+        assert all(any(obj.type == "MESH" and obj.parent != root(review, side)
+            and obj.get("sculptary_review_side") == side for obj in review.objects) for side in ("base", "head"))
         assert (len(working.gltf2_animation_tracks) if hasattr(working, "gltf2_animation_tracks") else None) == tracks, "Import changed the working scene's clip list"
         assert bpy.ops.sculptary.comparison_layout(mode="overlay") == {"FINISHED"}
         assert all(root(review, side).location.length == 0 for side in ("base", "head"))
