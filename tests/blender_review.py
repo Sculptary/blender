@@ -1,6 +1,7 @@
 """Native PR comparison and cursor pins, including forks and renamed models."""
 
 import json
+import math
 import sys
 import tempfile
 from pathlib import Path
@@ -101,8 +102,11 @@ try:
         assert bpy.ops.sculptary.pin_cursor() == {"FINISHED"}
         posted = next(call for call in directory.calls if call[0] == "comment")
         assert posted[:4] == ("comment", "fixture/shell", 7, "Check the opening")
-        assert posted[4] == {"path": "models/new.glb", "commit_sha": "b" * 40,
-            "spatial_anchor": {"point": [1., 3., -2.], "normal": None, "object": "models/new.glb", "camera": None, "animation": {"rest": True}}}
+        assert posted[4]["path"] == "models/new.glb" and posted[4]["commit_sha"] == "b" * 40
+        anchor = posted[4]["spatial_anchor"]
+        assert all(math.isclose(actual, expected, abs_tol=1e-5) for actual, expected in zip(anchor["point"], [1., 3., -2.]))
+        assert anchor["normal"] is None and anchor["camera"] is None
+        assert anchor["object"] == "models/new.glb" and anchor["animation"] == {"rest": True}
         assert scene.sculptary_pin_body == ""
         assert len(json.loads(s.review_json)["comments"]) == 1
         scene.sculptary_pin_body = "Check the base"

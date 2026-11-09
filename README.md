@@ -43,11 +43,11 @@ an immutable asset before downloading its standard GLB preview.
 
 The comparison opens in a separate scene. Both versions retain their authored
 coordinates, hierarchy and scale; side-by-side layout adds only a display
-translation. Overlay shows the base as wireframe. Reviews use the authored rest
+translation along the initial viewport's horizontal axis. Overlay shows the base as wireframe. Reviews use the authored rest
 pose, so animations do not change pin coordinates or autoplay. Source files stay
 unchanged. Previews must be self-contained, with at most 32 MiB of JSON metadata.
 
-**Close comparison** returns to the working scene and removes generated data.
+**Close comparison** returns to the working scene, restores its view and removes generated data.
 User-added objects and externally linked data are preserved. Publishing and model
 import are blocked inside a comparison scene. Switch to object mode before
 opening or closing a comparison. The server must support standard desktop
@@ -89,10 +89,14 @@ blender --background --factory-startup --python-exit-code 1 --python tests/blend
 blender --background --factory-startup --python-exit-code 1 --python tests/blender_review.py
 ```
 
-End-to-end check against a running server, inside Blender:
+An opt-in end-to-end review check accepts a temporary JSON config outside the
+checkout. See the script's docstring for its fields. Use a disposable repository
+with a processed model PR; the caller is responsible for fixture cleanup. Keep
+the config private and remove it after the run. The token is read from the file
+so it does not appear in process arguments:
 
 ```bash
-blender -b --factory-startup --python tests/blender_integration.py -- <host> <token> <repo-dir>
+blender -b --factory-startup --python-exit-code 1 --python tests/blender_review_integration.py -- /private/temp/fixture.json
 ```
 
 Build the extension zip with `python build.py`.

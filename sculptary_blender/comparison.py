@@ -44,8 +44,9 @@ def roots(scene):
 
 
 def set_layout(scene, mode):
+    direction = Vector(scene.get("sculptary_review_direction", (1, 0, 0)))
     for side, root in roots(scene).items():
-        root.location.x = 0 if mode == "overlay" else scene["sculptary_review_spacing"] * (-0.5 if side == "base" else 0.5)
+        root.location = direction * (0 if mode == "overlay" else scene["sculptary_review_spacing"] * (-0.5 if side == "base" else 0.5))
     for obj in scene.objects:
         if obj.type == "MESH" and obj.get(OWNER) == scene.get(OWNER):
             obj.display_type = "WIRE" if mode == "overlay" and obj.get("sculptary_review_side") == "base" else "TEXTURED"
@@ -55,6 +56,26 @@ def set_layout(scene, mode):
 
 def _snapshot():
     return {name: set(getattr(bpy.data, name)) for name in DATA}
+
+
+def _viewports(context):
+    return {"screen": context.screen.name, "areas": {str(area.as_pointer()): {
+        "location": list(area.spaces.active.region_3d.view_location),
+        "rotation": list(area.spaces.active.region_3d.view_rotation),
+        "distance": area.spaces.active.region_3d.view_distance,
+        "perspective": area.spaces.active.region_3d.view_perspective,
+    } for area in context.screen.areas if area.type == "VIEW_3D"}}
+
+
+def _restore_viewports(context, views):
+    if not views or context.screen.name != views["screen"]:
+        return
+    for area in context.screen.areas:
+        saved = views["areas"].get(str(area.as_pointer()))
+        if saved and area.type == "VIEW_3D":
+            region = area.spaces.active.region_3d
+            region.view_location, region.view_rotation = saved["location"], saved["rotation"]
+            region.view_distance, region.view_perspective = saved["distance"], saved["perspective"]
 
 
 def _tag_new(before, uid):
@@ -138,12 +159,12 @@ def open_review(context, client, base, head, *, repository, path, server, pull_n
             if asset:
                 client.download_preview(asset["repository"], asset["asset_id"], str(source))
             sources[side] = source
-        before, uid = _snapshot(), uuid.uuid4().hex
+        before, uid, viewports = _snapshot(), uuid.uuid4().hex, _viewports(context)
         scene = bpy.data.scenes.new("Sculptary comparison")
         scene[OWNER] = scene.collection[OWNER] = uid
         scene["sculptary_review"] = json.dumps({"uid": uid, "working_scene": working.name,
             "repository": repository, "path": path, "server": server_identity(server),
-            "base": base, "head": head, "pull_number": pull_number})
+            "base": base, "head": head, "pull_number": pull_number, "viewports": viewports})
         scene.sculptary_review_working = working
         context.window.scene = scene
         try:
@@ -153,7 +174,11 @@ def open_review(context, client, base, head, *, repository, path, server, pull_n
             if not points:
                 raise SculptaryError(422, "There is no model geometry in this comparison.")
             extents = [max(p[i] for p in points) - min(p[i] for p in points) for i in range(3)]
-            scene["sculptary_review_spacing"] = max(extents[0], max(extents) * 0.1, 0.00001) * 1.2
+            area = context.area if context.area and context.area.type == "VIEW_3D" else next((item for item in context.screen.areas if item.type == "VIEW_3D"), None)
+            direction = area.spaces.active.region_3d.view_rotation @ Vector((1, 0, 0)) if area else Vector((1, 0, 0))
+            projected = [point.dot(direction) for point in points]
+            scene["sculptary_review_direction"] = list(direction)
+            scene["sculptary_review_spacing"] = max(max(projected) - min(projected), max(extents) * 0.1, 0.00001) * 1.2
             for obj in scene.objects:
                 obj.hide_select = True
             set_layout(scene, "side_by_side")
@@ -162,11 +187,14 @@ def open_review(context, client, base, head, *, repository, path, server, pull_n
             for area in context.screen.areas:
                 if area.type == "VIEW_3D":
                     region = area.spaces.active.region_3d
+                    if region.view_perspective == "CAMERA":
+                        region.view_perspective = "PERSP"
                     region.view_location = center
                     region.view_distance = max(*extents, scene["sculptary_review_spacing"], 0.01) * 2
         except Exception:
             _tag_new(before, uid)
             context.window.scene = working
+            _restore_viewports(context, viewports)
             _dispose(scene, working)
             raise
         _tag_new(before, uid)
@@ -224,6 +252,7 @@ class SCULPTARY_OT_close_comparison(Operator):
         if working is None or working == scene:
             working = next((item for item in bpy.data.scenes if not review_info(item)), None) or bpy.data.scenes.new("Scene")
         context.window.scene = working
+        _restore_viewports(context, info.get("viewports"))
         _dispose(scene, working)
         return {"FINISHED"}
 

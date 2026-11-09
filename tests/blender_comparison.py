@@ -116,6 +116,9 @@ try:
         cube.scale.x = 2
         bpy.ops.export_scene.gltf(filepath=str(head), export_format="GLB", use_selection=True)
         before = {obj: obj.matrix_world.copy() for obj in working.objects}
+        views = {area.as_pointer(): (area.spaces.active.region_3d.view_location.copy(),
+            area.spaces.active.region_3d.view_rotation.copy(), area.spaces.active.region_3d.view_distance,
+            area.spaces.active.region_3d.view_perspective) for area in bpy.context.screen.areas if area.type == "VIEW_3D"}
         tracks = len(working.gltf2_animation_tracks) if hasattr(working, "gltf2_animation_tracks") else None
         directory = Directory(base, head)
         addon.client = lambda: directory
@@ -130,6 +133,12 @@ try:
         assert info["base"]["commit"] == "a" * 40 and info["head"]["commit"] == "b" * 40
         assert info["working_scene"] == working.name
         assert root(review, "base").location.x < 0 < root(review, "head").location.x
+        viewport = next(area.spaces.active.region_3d for area in bpy.context.screen.areas if area.type == "VIEW_3D")
+        direction = viewport.view_rotation @ Vector((1, 0, 0))
+        projected = {side: [(obj.matrix_world @ vertex.co).dot(direction) for obj in review.objects
+            if obj.type == "MESH" and obj.get("sculptary_review_side") == side for vertex in obj.data.vertices]
+            for side in ("base", "head")}
+        assert max(projected["base"]) < min(projected["head"]), "Models overlap in the initial side-by-side view"
         assert all(obj.hide_select for obj in review.objects)
         assert all(tuple(root(review, side).scale) == (1, 1, 1) for side in ("base", "head"))
         expected_base = {(x, y, z) for x in (4., 6.) for y in (1., 3.) for z in (0., 2.)}
@@ -153,6 +162,10 @@ try:
         assert bpy.context.scene == working
         bpy.data.scenes.remove(other)
         assert bpy.context.scene == working and len(bpy.data.scenes) == 1
+        for area in bpy.context.screen.areas:
+            if area.as_pointer() in views:
+                region = area.spaces.active.region_3d
+                assert (region.view_location, region.view_rotation, region.view_distance, region.view_perspective) == views[area.as_pointer()], "Closing changed the working viewport"
         assert {obj: obj.matrix_world for obj in working.objects} == before
         assert len(bpy.data.objects) == len(before)
         for failure in ("pending", "invalid"):
