@@ -37,6 +37,9 @@ class Directory:
         self.calls.append(("assets", name, ref))
         return [{"path": "models/shell.glb", "status": "ready", "metadata": {"triangle_count": 12}}] if self.refs[name] else []
 
+    def pull_requests(self, name, state="open"):
+        return {"counts": {"open": 0, "closed": 0, "merged": 0}, "items": []}
+
     def history(self, name, path, ref=None):
         self.calls.append(("history", name, ref))
         return [{"oid": "b" * 40, "message": "Adjust shell", "author": {"name": "Fixture"}, "committer": {"date": "2026-11-09"}}]

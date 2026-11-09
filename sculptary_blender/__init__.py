@@ -16,10 +16,11 @@ import os
 import tempfile
 
 import bpy
-from bpy.props import BoolProperty, CollectionProperty, IntProperty, StringProperty
+from bpy.props import BoolProperty, CollectionProperty, EnumProperty, IntProperty, StringProperty
 from bpy.types import AddonPreferences, Operator, Panel, PropertyGroup, UIList
 
 from .api import Client, SculptaryError
+from . import pulls
 
 ADDON = __package__ or __name__
 
@@ -33,11 +34,31 @@ def client() -> Client:
     return Client(p.host, p.token)
 
 
+def _credentials_changed(self, context):
+    self.username = ""
+    manager = getattr(context, "window_manager", None)
+    s = getattr(manager, "sculptary", None)
+    if s is None:
+        return
+    previous = s.updating
+    s.updating = True
+    try:
+        s.repos.clear()
+        s.branches.clear()
+        s.assets.clear()
+        s.history.clear()
+        s.loaded_repo, s.default_branch, s.new_branch_name = "", "", ""
+        s.is_empty = False
+        pulls.clear_review(s, drafts=True)
+    finally:
+        s.updating = previous
+
+
 class SculptaryPreferences(AddonPreferences):
     bl_idname = ADDON
 
-    host: StringProperty(name="Host", default="https://sculptary.com")
-    token: StringProperty(name="Access token", subtype="PASSWORD", description="Create one at Settings > Tokens with repo:write and user scopes")
+    host: StringProperty(name="Host", default="https://sculptary.com", update=_credentials_changed)
+    token: StringProperty(name="Access token", subtype="PASSWORD", description="Create one at Settings > Tokens with repo:write and user scopes", update=_credentials_changed)
     username: StringProperty(name="Signed in as", default="")
 
     def draw(self, context):
@@ -95,6 +116,20 @@ class SculptaryState(PropertyGroup):
     loaded_repo: StringProperty()
     updating: BoolProperty(options={"HIDDEN"})
     new_branch_name: StringProperty(name="New branch")
+    pulls: CollectionProperty(type=pulls.SculptaryPull)
+    pull_index: IntProperty(default=-1, update=pulls.on_selection)
+    pull_filter: EnumProperty(name="State", items=[("open", "Open", ""), ("closed", "Closed", ""), ("merged", "Merged", ""), ("all", "All", "")], update=pulls.on_filter)
+    pull_repo: StringProperty()
+    pull_total: IntProperty(default=-1)
+    pull_error: StringProperty()
+    pull_lookup_number: IntProperty(name="Number", default=1, min=1)
+    review_repo: StringProperty()
+    review_number: IntProperty()
+    review_json: StringProperty(options={"HIDDEN"})
+    pull_title: StringProperty(name="Title", maxlen=256)
+    pull_description: StringProperty(name="Description", maxlen=65536)
+    pull_target: StringProperty(name="Into branch")
+    pull_draft: BoolProperty(name="Draft")
     assets: CollectionProperty(type=SculptaryAsset)
     asset_index: IntProperty()
     history: CollectionProperty(type=SculptaryCommit)
@@ -181,11 +216,14 @@ class SCULPTARY_OT_load_repository(Operator):
         s = state(context)
         repo = current_repo(context)
         previous = self.select_branch or current_branch(context)
+        same_repo = s.loaded_repo == repo
+        review_number = s.review_number if same_repo else 0
         s.updating = True
         try:
             s.branches.clear()
             s.assets.clear()
             s.history.clear()
+            pulls.clear_review(s, drafts=not same_repo)
             s.loaded_repo = ""
             s.default_branch = ""
             s.is_empty = False
@@ -199,6 +237,8 @@ class SCULPTARY_OT_load_repository(Operator):
                 item.name, item.commit = branch["name"], branch["commit"]
                 item.protected, item.default = branch.get("protected", False), branch.get("default", False)
             s.default_branch, s.is_empty = metadata["default_branch"], metadata["is_empty"]
+            if not s.pull_target:
+                s.pull_target = s.default_branch
             desired = previous if any(branch.name == previous for branch in s.branches) else s.default_branch
             s.branch_index = next((i for i, branch in enumerate(s.branches) if branch.name == desired), 0)
             s.loaded_repo = repo
@@ -207,6 +247,7 @@ class SCULPTARY_OT_load_repository(Operator):
         finally:
             s.updating = False
         bpy.ops.sculptary.load_assets()
+        bpy.ops.sculptary.load_pulls(select_number=review_number)
         return {"FINISHED"}
 
 
@@ -473,10 +514,11 @@ class SCULPTARY_PT_publish(Panel):
 
 
 CLASSES = (
-    SculptaryPreferences, SculptaryRepo, SculptaryAsset, SculptaryBranch, SculptaryCommit, SculptaryState,
+    SculptaryPreferences, SculptaryRepo, SculptaryAsset, SculptaryBranch, SculptaryCommit, *pulls.DATA_CLASSES, SculptaryState,
     SCULPTARY_OT_sign_in, SCULPTARY_OT_refresh, SCULPTARY_OT_load_repository, SCULPTARY_OT_create_branch, SCULPTARY_OT_load_assets, SCULPTARY_OT_import, SCULPTARY_OT_history,
     SCULPTARY_OT_publish, SCULPTARY_OT_create_repo, SCULPTARY_OT_open_in_browser,
     SCULPTARY_UL_repos, SCULPTARY_UL_assets, SCULPTARY_UL_branches, SCULPTARY_PT_main, SCULPTARY_PT_models, SCULPTARY_PT_publish,
+    *pulls.UI_CLASSES,
 )
 
 
