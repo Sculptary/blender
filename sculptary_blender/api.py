@@ -21,12 +21,41 @@ class SculptaryError(Exception):
         self.message = message
 
 
+def _origin(url: str) -> tuple:
+    parts = parse.urlsplit(url)
+    return parts.scheme.lower(), parts.hostname, parts.port or {"http": 80, "https": 443}.get(parts.scheme.lower())
+
+
+class CredentialRedirectHandler(request.HTTPRedirectHandler):
+    """Signed object URLs authenticate themselves; never forward the API token."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        redirected = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if redirected is not None and _origin(req.full_url) != _origin(newurl):
+            for header in ("Authorization", "Cookie", "Proxy-authorization"):
+                redirected.remove_header(header)
+        return redirected
+
+
+def _http_error(exc: error.HTTPError) -> SculptaryError:
+    message = str(exc.reason)
+    try:
+        payload = json.loads(exc.read(65536) or b"{}")
+        detail = payload.get("error") if isinstance(payload, dict) else None
+        value = detail.get("message") if isinstance(detail, dict) else None
+        if isinstance(value, str) and value.strip():
+            message = value[:1000]
+    except (ValueError, OSError):
+        pass
+    return SculptaryError(exc.code, message)
+
+
 class Client:
     def __init__(self, host: str, token: str = "", timeout: float = 60.0, opener=None):
         self.host = host.rstrip("/")
         self.token = token
         self.timeout = timeout
-        self._open = opener or request.urlopen
+        self._open = opener or request.build_opener(CredentialRedirectHandler()).open
 
     def _req(self, method: str, path: str, *, query: dict | None = None, body: bytes | None = None,
              content_type: str | None = None) -> request.Request:
@@ -48,14 +77,13 @@ class Client:
             with self._open(req, timeout=self.timeout) as resp:
                 data = resp.read()
         except error.HTTPError as exc:
-            try:
-                msg = json.loads(exc.read() or b"{}").get("error", {}).get("message") or exc.reason
-            except ValueError:
-                msg = str(exc.reason)
-            raise SculptaryError(exc.code, str(msg)) from None
+            raise _http_error(exc) from None
         except error.URLError as exc:
             raise SculptaryError(0, f"Could not reach {self.host}: {exc.reason}") from None
-        return json.loads(data) if data else None
+        try:
+            return json.loads(data) if data else None
+        except ValueError:
+            raise SculptaryError(502, "The server did not return valid JSON. Check the host and try again.") from None
 
     def get(self, api_path: str, **query) -> Any:
         return self._send(self._req("GET", api_path, query=query))
@@ -73,7 +101,9 @@ class Client:
                     n += len(chunk)
                 return n
         except error.HTTPError as exc:
-            raise SculptaryError(exc.code, f"Download failed ({exc.code})") from None
+            raise _http_error(exc) from None
+        except error.URLError as exc:
+            raise SculptaryError(0, f"Could not reach {self.host}: {exc.reason}") from None
 
     # --- Operations used by the add-on ------------------------------------
 
@@ -128,6 +158,12 @@ class Client:
 
     def assets(self, full_name: str, ref: str | None = None) -> list[dict]:
         return self.get(f"/repos/{full_name}/assets", ref=ref)["assets"]
+
+    def asset_at(self, full_name: str, path: str, ref: str) -> dict:
+        return self.get(f"/repos/{full_name}/asset", path=path, ref=ref)
+
+    def download_preview(self, full_name: str, asset_id: str, dest: str) -> int:
+        return self.download(f"/repos/{full_name}/assets/{parse.quote(asset_id, safe='')}/preview", dest, encoding="standard")
 
     def history(self, full_name: str, path: str, ref: str | None = None) -> list[dict]:
         return self.get(f"/repos/{full_name}/commits", ref=ref, path=path, per_page=20)["commits"]

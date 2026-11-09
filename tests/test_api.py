@@ -1,8 +1,10 @@
 import io
 import json
 import sys
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib import error, parse
+from urllib import error, parse, request
 
 import pytest
 
@@ -49,6 +51,91 @@ def test_http_errors_become_sculptary_errors():
         assert e.status == 404 and e.message == "Repository not found."
     else:
         raise AssertionError("expected error")
+
+
+def test_asset_lookup_and_standard_preview_download_use_immutable_asset_routes(tmp_path):
+    def respond(req):
+        if "/preview?" in req.full_url:
+            return FakeResponse(b"glTF-preview")
+        return FakeResponse(b'{"id":"asset-id","commit":"immutable-sha","standard_preview_url":"/preview?encoding=standard"}')
+
+    _open, calls = opener(respond)
+    client = api.Client("https://x.test", opener=_open)
+    assert client.asset_at("artist/model", "models/a b.glb", "feature/fit")["commit"] == "immutable-sha"
+    destination = tmp_path / "preview.glb"
+    assert client.download_preview("artist/model", "asset-id", str(destination)) == 12
+    assert destination.read_bytes() == b"glTF-preview"
+    assert parse.parse_qs(parse.urlsplit(calls[0].full_url).query) == {"path": ["models/a b.glb"], "ref": ["feature/fit"]}
+    assert calls[1].full_url.endswith("/assets/asset-id/preview?encoding=standard")
+
+
+def test_preview_preparation_errors_remain_actionable_and_do_not_write_a_file(tmp_path):
+    def fail(req):
+        raise error.HTTPError(req.full_url, 409, "Conflict", {}, io.BytesIO(
+            b'{"error":{"message":"Standard preview is being prepared. Retry shortly."}}'))
+
+    _open, _ = opener(fail)
+    destination = tmp_path / "preview.glb"
+    with pytest.raises(api.SculptaryError, match="being prepared") as caught:
+        api.Client("https://x.test", opener=_open).download("/preview", str(destination))
+    assert caught.value.status == 409 and not destination.exists()
+
+
+def test_invalid_api_json_becomes_an_actionable_client_error():
+    _open, _ = opener(lambda req: FakeResponse(b"<html>Upstream unavailable</html>"))
+    with pytest.raises(api.SculptaryError, match="valid JSON") as caught:
+        api.Client("https://x.test", opener=_open).me()
+    assert caught.value.status == 502
+
+
+def test_redirects_keep_credentials_only_on_the_same_origin(tmp_path):
+    seen = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+        def do_GET(self):
+            seen.append((self.server.server_port, self.path, self.headers.get("Authorization")))
+            if self.path.endswith("/preview?encoding=standard"):
+                self.send_response(302)
+                self.send_header("Location", "/same-origin")
+            elif self.path == "/same-origin":
+                self.send_response(302)
+                self.send_header("Location", f"http://127.0.0.1:{storage.server_port}/signed-object")
+            else:
+                self.send_response(200)
+            self.end_headers()
+            if self.path == "/signed-object":
+                self.wfile.write(b"glTF-preview")
+
+    storage = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    service = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threads = [threading.Thread(target=server.serve_forever, daemon=True) for server in (storage, service)]
+    for thread in threads:
+        thread.start()
+    try:
+        client = api.Client(f"http://127.0.0.1:{service.server_port}", "test-review-credential")
+        client.download("/preview", str(tmp_path / "preview.glb"), encoding="standard")
+        assert [entry[2] for entry in seen] == ["Bearer test-review-credential", "Bearer test-review-credential", None]
+        assert (tmp_path / "preview.glb").read_bytes() == b"glTF-preview"
+    finally:
+        for server in (service, storage):
+            server.shutdown()
+            server.server_close()
+        for thread in threads:
+            thread.join(timeout=2)
+
+
+@pytest.mark.parametrize("destination,authorized", [
+    ("https://x.test/next", True), ("https://X.test:443/next", True),
+    ("http://x.test/next", False), ("https://storage.test/object", False),
+    ("https://x.test:444/object", False),
+])
+def test_redirect_origin_includes_scheme_host_and_port(destination, authorized):
+    original = request.Request("https://x.test/api/v1/user", headers={"Authorization": "Bearer test-review-credential"})
+    redirected = api.CredentialRedirectHandler().redirect_request(original, None, 302, "Found", {}, destination)
+    assert bool(redirected.get_header("Authorization")) is authorized
 
 
 def test_multipart_includes_paths_and_files(tmp_path):
