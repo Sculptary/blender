@@ -23,7 +23,11 @@ pull requests and side-by-side comparison inside Blender.
 ## Development
 
 The API client (`sculptary_blender/api.py`) uses only the standard library and is unit-tested outside
-Blender:
+Blender. It includes branch creation, pull request discovery and creation, change
+lists, spatial comments, threaded replies and resolution. The Blender controls for
+these review operations are still in progress.
+
+Run the client tests with:
 
 ```bash
 python -m pytest tests/test_api.py

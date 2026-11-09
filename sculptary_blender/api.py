@@ -92,6 +92,40 @@ class Client:
     def branches(self, full_name: str) -> list[dict]:
         return self.get(f"/repos/{full_name}/branches")
 
+    def create_branch(self, full_name: str, name: str, from_ref: str) -> dict:
+        return self.post_json(f"/repos/{full_name}/branches", {"name": name, "from_ref": from_ref})
+
+    def pull_requests(self, full_name: str, state: str = "open") -> dict:
+        return self.get(f"/repos/{full_name}/pulls", state=state)
+
+    def pull_request(self, full_name: str, number: int) -> dict:
+        return self.get(f"/repos/{full_name}/pulls/{number}")
+
+    def pull_changes(self, full_name: str, number: int) -> dict:
+        return self.get(f"/repos/{full_name}/pulls/{number}/changes")
+
+    def create_pull_request(self, full_name: str, title: str, source_branch: str, *,
+                            target_branch: str | None = None, body: str = "", draft: bool = False,
+                            source_repository: str | None = None) -> dict:
+        payload = {"title": title, "source_branch": source_branch, "body": body, "draft": draft}
+        if target_branch is not None:
+            payload["target_branch"] = target_branch
+        if source_repository is not None:
+            payload["source_repository"] = source_repository
+        return self.post_json(f"/repos/{full_name}/pulls", payload)
+
+    def comment_pull_request(self, full_name: str, number: int, body: str, *, path: str | None = None,
+                             commit_sha: str | None = None, spatial_anchor: dict | None = None,
+                             parent_id: str | None = None) -> dict:
+        payload = {"body": body}
+        payload.update({key: value for key, value in {"path": path, "commit_sha": commit_sha,
+            "spatial_anchor": spatial_anchor, "parent_id": parent_id}.items() if value is not None})
+        return self.post_json(f"/repos/{full_name}/pulls/{number}/comments", payload)
+
+    def resolve_comment(self, full_name: str, comment_id: str, *, resolved: bool = True) -> dict:
+        action = "resolve" if resolved else "unresolve"
+        return self.post_json(f"/repos/{full_name}/comments/{parse.quote(comment_id, safe='')}/{action}", {})
+
     def assets(self, full_name: str, ref: str | None = None) -> list[dict]:
         return self.get(f"/repos/{full_name}/assets", ref=ref)["assets"]
 
