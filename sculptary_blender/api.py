@@ -11,7 +11,7 @@ import uuid
 from typing import Any
 from urllib import error, parse, request
 
-USER_AGENT = "sculptary-blender/0.1.0"
+USER_AGENT = "sculptary-blender/0.2.0"
 
 
 class SculptaryError(Exception):
@@ -139,7 +139,12 @@ class Client:
         """Commit local files (repository path -> local file path) in one commit."""
         repo = self.repository(full_name)
         branch = branch or repo["default_branch"]
-        head = "" if repo.get("is_empty") else next((b["commit"] for b in self.branches(full_name) if b["name"] == branch), "")
+        head = ""
+        if not repo.get("is_empty"):
+            selected = next((item for item in self.branches(full_name) if item["name"] == branch), None)
+            if selected is None:
+                raise SculptaryError(409, "The selected branch no longer exists. Refresh branches before publishing.")
+            head = selected["commit"]
         fields = {"branch": branch, "message": message, "expected_head": head}
         body, ctype = encode_multipart(fields, files)
         return self._send(self._req("POST", f"/repos/{full_name}/contents", body=body, content_type=ctype))

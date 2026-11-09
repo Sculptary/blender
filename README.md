@@ -16,9 +16,15 @@ and press *Sign in*.
 
 ## Status
 
-Foundations: sign-in, repository list and creation, model list with processing status, import (GLB,
-glTF, OBJ, STL, PLY), per-file history, publish scene or selection as GLB. Planned: branch selection,
-pull requests and side-by-side comparison inside Blender.
+Sign-in, repository list and creation, branch selection and creation, model list
+with processing status, import (GLB, glTF, OBJ, STL, PLY), per-file history and
+publishing a scene or selection as GLB are implemented. Pull request controls and
+side-by-side comparison inside Blender remain in progress.
+
+The selected branch applies to browsing, import, history and publishing. Refresh
+preserves your current branch; switching repositories selects that repository's
+default branch. Publishing the first model creates an empty repository's default
+branch. Temporary downloads and exports are removed after each operation.
 
 ## Development
 
@@ -31,6 +37,13 @@ Run the client tests with:
 
 ```bash
 python -m pytest tests/test_api.py
+```
+
+Native branch tests use real Blender import/export operators with an in-memory
+API fixture and no account or server:
+
+```bash
+blender --background --factory-startup --python-exit-code 1 --python tests/blender_branches.py
 ```
 
 End-to-end check against a running server, inside Blender:

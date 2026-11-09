@@ -117,3 +117,27 @@ def test_branch_creation_and_ref_queries_preserve_slashes_and_unicode():
     assert json.loads(calls[0].data) == {"name": "fit/épreuve", "from_ref": "main"}
     client.assets("artist/model", "fit/épreuve")
     assert parse.parse_qs(parse.urlsplit(calls[1].full_url).query) == {"ref": ["fit/épreuve"]}
+
+
+def test_publishing_does_not_recreate_a_selected_branch_that_was_deleted():
+    def respond(req):
+        result = [{"name": "main", "commit": "a" * 40}] if req.full_url.endswith("/branches") else {"default_branch": "main", "is_empty": False}
+        return FakeResponse(json.dumps(result).encode())
+    _open, calls = opener(respond)
+    with pytest.raises(api.SculptaryError, match="branch no longer exists"):
+        api.Client("https://x.test", opener=_open).upload("artist/model", {"models/shell.glb": "not-read.glb"}, "Update shell", branch="deleted/topic")
+    assert all(call.method == "GET" for call in calls)
+
+
+def test_publishing_uses_the_selected_branch_head_for_the_expected_head_check(tmp_path):
+    model = tmp_path / "model.glb"
+    model.write_bytes(b"glTF-fixture")
+    def respond(req):
+        if req.method == "POST":
+            return FakeResponse(b'{"commit":"new-head"}')
+        result = [{"name": "main", "commit": "a" * 40}, {"name": "fit/v2", "commit": "b" * 40}] if req.full_url.endswith("/branches") else {"default_branch": "main", "is_empty": False}
+        return FakeResponse(json.dumps(result).encode())
+    _open, calls = opener(respond)
+    api.Client("https://x.test", opener=_open).upload("artist/model", {"models/shell.glb": str(model)}, "Update shell", branch="fit/v2")
+    assert b'name="branch"\r\n\r\nfit/v2\r\n' in calls[-1].data
+    assert b'name="expected_head"\r\n\r\n' + b"b" * 40 + b"\r\n" in calls[-1].data

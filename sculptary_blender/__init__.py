@@ -4,7 +4,7 @@ scene as GLB, import models and inspect a file's version history."""
 bl_info = {
     "name": "Sculptary",
     "author": "Sculptary",
-    "version": (0, 1, 0),
+    "version": (0, 2, 0),
     "blender": (4, 2, 0),
     "location": "3D Viewport > Sidebar > Sculptary",
     "description": "Version control and collaboration for 3D",
@@ -58,7 +58,14 @@ class SculptaryRepo(PropertyGroup):
 class SculptaryAsset(PropertyGroup):
     path: StringProperty()
     status: StringProperty()
-    triangles: IntProperty()
+    triangles: IntProperty(default=-1)
+
+
+class SculptaryBranch(PropertyGroup):
+    name: StringProperty()
+    commit: StringProperty()
+    protected: BoolProperty()
+    default: BoolProperty()
 
 
 class SculptaryCommit(PropertyGroup):
@@ -69,12 +76,25 @@ class SculptaryCommit(PropertyGroup):
 
 
 def _on_repo_change(self, context):
-    bpy.ops.sculptary.load_assets()
+    if not self.updating:
+        bpy.ops.sculptary.load_repository()
+
+
+def _on_branch_change(self, context):
+    if not self.updating:
+        bpy.ops.sculptary.load_assets()
 
 
 class SculptaryState(PropertyGroup):
     repos: CollectionProperty(type=SculptaryRepo)
     repo_index: IntProperty(update=_on_repo_change)
+    branches: CollectionProperty(type=SculptaryBranch)
+    branch_index: IntProperty(update=_on_branch_change)
+    default_branch: StringProperty()
+    is_empty: BoolProperty()
+    loaded_repo: StringProperty()
+    updating: BoolProperty(options={"HIDDEN"})
+    new_branch_name: StringProperty(name="New branch")
     assets: CollectionProperty(type=SculptaryAsset)
     asset_index: IntProperty()
     history: CollectionProperty(type=SculptaryCommit)
@@ -94,6 +114,15 @@ def current_repo(context) -> str | None:
     if 0 <= s.repo_index < len(s.repos):
         return s.repos[s.repo_index].full_name
     return None
+
+
+def current_branch(context) -> str | None:
+    s = state(context)
+    if s.loaded_repo != current_repo(context):
+        return None
+    if 0 <= s.branch_index < len(s.branches):
+        return s.branches[s.branch_index].name
+    return s.default_branch if s.is_empty and s.default_branch else None
 
 
 def report_error(op: Operator, exc: Exception) -> set:
@@ -124,15 +153,79 @@ class SCULPTARY_OT_refresh(Operator):
 
     def execute(self, context):
         s = state(context)
+        previous = current_repo(context)
         try:
             repos = client().my_repositories()
         except SculptaryError as exc:
             return report_error(self, exc)
-        s.repos.clear()
-        for r in repos:
-            item = s.repos.add()
-            item.full_name, item.visibility = r["full_name"], r["visibility"]
+        s.updating = True
+        try:
+            s.repos.clear()
+            for r in repos:
+                item = s.repos.add()
+                item.full_name, item.visibility = r["full_name"], r["visibility"]
+            s.repo_index = next((i for i, repo in enumerate(s.repos) if repo.full_name == previous), 0)
+        finally:
+            s.updating = False
+        bpy.ops.sculptary.load_repository()
+        return {"FINISHED"}
+
+
+class SCULPTARY_OT_load_repository(Operator):
+    bl_idname = "sculptary.load_repository"
+    bl_label = "Load branches"
+
+    select_branch: StringProperty(options={"HIDDEN"})
+
+    def execute(self, context):
+        s = state(context)
+        repo = current_repo(context)
+        previous = self.select_branch or current_branch(context)
+        s.updating = True
+        try:
+            s.branches.clear()
+            s.assets.clear()
+            s.history.clear()
+            s.loaded_repo = ""
+            s.default_branch = ""
+            s.is_empty = False
+            if not repo:
+                return {"FINISHED"}
+            c = client()
+            metadata = c.repository(repo)
+            branches = c.branches(repo) if not metadata["is_empty"] else []
+            for branch in branches:
+                item = s.branches.add()
+                item.name, item.commit = branch["name"], branch["commit"]
+                item.protected, item.default = branch.get("protected", False), branch.get("default", False)
+            s.default_branch, s.is_empty = metadata["default_branch"], metadata["is_empty"]
+            desired = previous if any(branch.name == previous for branch in s.branches) else s.default_branch
+            s.branch_index = next((i for i, branch in enumerate(s.branches) if branch.name == desired), 0)
+            s.loaded_repo = repo
+        except SculptaryError as exc:
+            return report_error(self, exc)
+        finally:
+            s.updating = False
         bpy.ops.sculptary.load_assets()
+        return {"FINISHED"}
+
+
+class SCULPTARY_OT_create_branch(Operator):
+    bl_idname = "sculptary.create_branch"
+    bl_label = "Create branch"
+
+    def execute(self, context):
+        s = state(context)
+        repo, branch, name = current_repo(context), current_branch(context), s.new_branch_name.strip()
+        if not repo or not branch or s.is_empty or not name:
+            self.report({"WARNING"}, "Select an existing branch and enter a new branch name")
+            return {"CANCELLED"}
+        try:
+            client().create_branch(repo, name, branch)
+        except SculptaryError as exc:
+            return report_error(self, exc)
+        s.new_branch_name = ""
+        bpy.ops.sculptary.load_repository(select_branch=name)
         return {"FINISHED"}
 
 
@@ -145,18 +238,18 @@ class SCULPTARY_OT_load_assets(Operator):
         s.assets.clear()
         s.history.clear()
         repo = current_repo(context)
-        if not repo:
+        branch = current_branch(context)
+        if not repo or not branch or s.is_empty:
             return {"FINISHED"}
         try:
-            assets = client().assets(repo)
+            assets = client().assets(repo, ref=branch)
         except SculptaryError as exc:
-            if exc.status == 0:
-                return report_error(self, exc)
-            assets = []
+            return report_error(self, exc)
         for a in assets:
             item = s.assets.add()
             item.path, item.status = a["path"], a["status"]
-            item.triangles = int((a.get("metadata") or {}).get("triangle_count") or 0)
+            triangles = (a.get("metadata") or {}).get("triangle_count")
+            item.triangles = int(triangles) if triangles is not None else -1
         return {"FINISHED"}
 
 
@@ -173,22 +266,27 @@ class SCULPTARY_OT_import(Operator):
             return {"CANCELLED"}
         path = s.assets[s.asset_index].path
         ext = os.path.splitext(path)[1].lower()
-        tmp = os.path.join(tempfile.mkdtemp(prefix="sculptary-"), os.path.basename(path))
-        try:
-            client().download_file(repo, path, tmp)
-        except SculptaryError as exc:
-            return report_error(self, exc)
+        branch = current_branch(context)
+        if not branch:
+            self.report({"WARNING"}, "Select a branch first")
+            return {"CANCELLED"}
         importers = {
-            ".glb": lambda: bpy.ops.import_scene.gltf(filepath=tmp),
-            ".gltf": lambda: bpy.ops.import_scene.gltf(filepath=tmp),
-            ".obj": lambda: bpy.ops.wm.obj_import(filepath=tmp),
-            ".stl": lambda: bpy.ops.wm.stl_import(filepath=tmp),
-            ".ply": lambda: bpy.ops.wm.ply_import(filepath=tmp),
+            ".glb": bpy.ops.import_scene.gltf,
+            ".gltf": bpy.ops.import_scene.gltf,
+            ".obj": bpy.ops.wm.obj_import,
+            ".stl": bpy.ops.wm.stl_import,
+            ".ply": bpy.ops.wm.ply_import,
         }
         if ext not in importers:
             self.report({"WARNING"}, f"{ext} files cannot be imported yet")
             return {"CANCELLED"}
-        importers[ext]()
+        try:
+            with tempfile.TemporaryDirectory(prefix="sculptary-") as folder:
+                tmp = os.path.join(folder, "model" + ext)
+                client().download_file(repo, path, tmp, ref=branch)
+                importers[ext](filepath=tmp)
+        except (SculptaryError, OSError, RuntimeError) as exc:
+            return report_error(self, exc)
         self.report({"INFO"}, f"Imported {path}")
         return {"FINISHED"}
 
@@ -204,7 +302,7 @@ class SCULPTARY_OT_history(Operator):
         if not repo or not (0 <= s.asset_index < len(s.assets)):
             return {"CANCELLED"}
         try:
-            commits = client().history(repo, s.assets[s.asset_index].path)
+            commits = client().history(repo, s.assets[s.asset_index].path, ref=current_branch(context))
         except SculptaryError as exc:
             return report_error(self, exc)
         s.history.clear()
@@ -232,17 +330,22 @@ class SCULPTARY_OT_publish(Operator):
         if not repo:
             self.report({"WARNING"}, "Select or create a repository first")
             return {"CANCELLED"}
+        branch = current_branch(context)
+        if not branch:
+            self.report({"WARNING"}, "Select a branch first")
+            return {"CANCELLED"}
         target = s.publish_path.strip().lstrip("/") or "models/scene.glb"
         if not target.lower().endswith(".glb"):
             target += ".glb"
-        local = os.path.join(tempfile.mkdtemp(prefix="sculptary-"), os.path.basename(target))
-        export_glb(local, s.selected_only)
         try:
-            result = client().upload(repo, {target: local}, s.publish_message or "Update model from Blender")
-        except SculptaryError as exc:
+            with tempfile.TemporaryDirectory(prefix="sculptary-") as folder:
+                local = os.path.join(folder, "model.glb")
+                export_glb(local, s.selected_only)
+                result = client().upload(repo, {target: local}, s.publish_message or "Update model from Blender", branch=branch)
+        except (SculptaryError, OSError, RuntimeError) as exc:
             return report_error(self, exc)
         self.report({"INFO"}, f"Committed {target} as {result['commit'][:7]}")
-        bpy.ops.sculptary.load_assets()
+        bpy.ops.sculptary.load_repository()
         return {"FINISHED"}
 
 
@@ -288,7 +391,14 @@ class SCULPTARY_UL_assets(UIList):
     def draw_item(self, context, layout, data, item, icon, active_data, active_propname):
         row = layout.row()
         row.label(text=item.path, icon="MESH_DATA")
-        row.label(text=f"{item.triangles:,} tris" if item.status == "ready" else item.status)
+        row.label(text=(f"{item.triangles:,} triangles" if item.triangles >= 0 else "Triangles unknown") if item.status == "ready" else item.status)
+
+
+class SCULPTARY_UL_branches(UIList):
+    def draw_item(self, context, layout, data, item, icon, active_data, active_propname):
+        layout.label(text=item.name, icon="LOCKED" if item.protected else "OUTLINER_COLLECTION")
+        if item.default:
+            layout.label(text="Default")
 
 
 class SCULPTARY_PT_main(Panel):
@@ -314,6 +424,16 @@ class SCULPTARY_PT_main(Panel):
         row.prop(s, "new_repo_private", text="", icon="LOCKED")
         row.operator("sculptary.create_repo", text="", icon="ADD")
         layout.operator("sculptary.open_browser", icon="URL")
+        layout.label(text="Branch")
+        if s.branches:
+            layout.template_list("SCULPTARY_UL_branches", "", s, "branches", s, "branch_index", rows=3)
+            row = layout.row(align=True)
+            row.prop(s, "new_branch_name", text="")
+            row.operator("sculptary.create_branch", text="", icon="ADD")
+        elif s.is_empty:
+            layout.label(text="Publish the first model to create " + s.default_branch)
+        else:
+            layout.label(text="No branch selected")
 
 
 class SCULPTARY_PT_models(Panel):
@@ -344,6 +464,8 @@ class SCULPTARY_PT_publish(Panel):
     def draw(self, context):
         s = state(context)
         col = self.layout.column()
+        branch = current_branch(context)
+        col.label(text="Publish to " + branch if branch else "Select a branch")
         col.prop(s, "publish_path")
         col.prop(s, "publish_message")
         col.prop(s, "selected_only")
@@ -351,10 +473,10 @@ class SCULPTARY_PT_publish(Panel):
 
 
 CLASSES = (
-    SculptaryPreferences, SculptaryRepo, SculptaryAsset, SculptaryCommit, SculptaryState,
-    SCULPTARY_OT_sign_in, SCULPTARY_OT_refresh, SCULPTARY_OT_load_assets, SCULPTARY_OT_import, SCULPTARY_OT_history,
+    SculptaryPreferences, SculptaryRepo, SculptaryAsset, SculptaryBranch, SculptaryCommit, SculptaryState,
+    SCULPTARY_OT_sign_in, SCULPTARY_OT_refresh, SCULPTARY_OT_load_repository, SCULPTARY_OT_create_branch, SCULPTARY_OT_load_assets, SCULPTARY_OT_import, SCULPTARY_OT_history,
     SCULPTARY_OT_publish, SCULPTARY_OT_create_repo, SCULPTARY_OT_open_in_browser,
-    SCULPTARY_UL_repos, SCULPTARY_UL_assets, SCULPTARY_PT_main, SCULPTARY_PT_models, SCULPTARY_PT_publish,
+    SCULPTARY_UL_repos, SCULPTARY_UL_assets, SCULPTARY_UL_branches, SCULPTARY_PT_main, SCULPTARY_PT_models, SCULPTARY_PT_publish,
 )
 
 
