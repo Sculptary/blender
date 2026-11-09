@@ -59,7 +59,7 @@ try:
         direction = Vector(scene["sculptary_review_direction"])
         camera_object.location = target + Vector((direction.y * 10, -direction.x * 10, 7))
         camera_object.rotation_euler = (target - camera_object.location).to_track_quat("-Z", "Y").to_euler()
-        camera.type, camera.ortho_scale = "ORTHO", scene["sculptary_review_spacing"] * 1.5
+        camera.type, camera.ortho_scale = "ORTHO", 1
         scene.camera = camera_object
         for name, location, power, size in (("Key", (-3, -4, 7), 700, 5), ("Fill", (4, 1, 5), 450, 4)):
             light = bpy.data.lights.new(name, "AREA")
@@ -69,6 +69,13 @@ try:
             obj.location = location
             obj.rotation_euler = (target - obj.location).to_track_quat("-Z", "Y").to_euler()
         addon.comparison._tag_new(snapshot, scene[addon.comparison.OWNER])
+        scene.render.resolution_x, scene.render.resolution_y, scene.render.resolution_percentage = 960, 640, 100
+        bpy.context.view_layer.update()
+        inverse = camera_object.matrix_world.inverted()
+        points = [inverse @ obj.matrix_world @ Vector(corner) for obj in scene.objects if obj.type == "MESH" for corner in obj.bound_box]
+        frame = camera.view_frame(scene=scene)
+        camera.ortho_scale = max((max(p.x for p in points) - min(p.x for p in points)) / (max(p.x for p in frame) - min(p.x for p in frame)),
+            (max(p.y for p in points) - min(p.y for p in points)) / (max(p.y for p in frame) - min(p.y for p in frame))) * 1.2
         scene.render.engine = "CYCLES"
         scene.cycles.samples = 16
         scene.render.resolution_x, scene.render.resolution_y, scene.render.resolution_percentage = 960, 640, 100

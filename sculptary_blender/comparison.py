@@ -78,6 +78,31 @@ def _restore_viewports(context, views):
             region.view_distance, region.view_perspective = saved["distance"], saved["perspective"]
 
 
+def _frame_review(context, scene):
+    meshes = [obj for obj in scene.objects if obj.type == "MESH"]
+    smooth = context.preferences.view.smooth_view
+    try:
+        context.preferences.view.smooth_view = 0
+        for obj in scene.objects:
+            obj.select_set(False)
+        for obj in meshes:
+            obj.hide_select = False
+            obj.select_set(True)
+        for area in context.screen.areas:
+            if area.type == "VIEW_3D":
+                if area.spaces.active.region_3d.view_perspective == "CAMERA":
+                    area.spaces.active.region_3d.view_perspective = "PERSP"
+                region = next((item for item in area.regions if item.type == "WINDOW"), None)
+                if region:
+                    with context.temp_override(area=area, region=region):
+                        bpy.ops.view3d.view_selected(use_all_regions=False)
+    finally:
+        for obj in scene.objects:
+            obj.select_set(False)
+            obj.hide_select = True
+        context.preferences.view.smooth_view = smooth
+
+
 def _tag_new(before, uid):
     for name, previous in before.items():
         for block in set(getattr(bpy.data, name)) - previous:
@@ -179,18 +204,8 @@ def open_review(context, client, base, head, *, repository, path, server, pull_n
             projected = [point.dot(direction) for point in points]
             scene["sculptary_review_direction"] = list(direction)
             scene["sculptary_review_spacing"] = max(max(projected) - min(projected), max(extents) * 0.1, 0.00001) * 1.2
-            for obj in scene.objects:
-                obj.hide_select = True
             set_layout(scene, "side_by_side")
-            # Frame the review without changing either source's transform.
-            center = Vector([(min(p[i] for p in points) + max(p[i] for p in points)) / 2 for i in range(3)])
-            for area in context.screen.areas:
-                if area.type == "VIEW_3D":
-                    region = area.spaces.active.region_3d
-                    if region.view_perspective == "CAMERA":
-                        region.view_perspective = "PERSP"
-                    region.view_location = center
-                    region.view_distance = max(*extents, scene["sculptary_review_spacing"], 0.01) * 2
+            _frame_review(context, scene)
         except Exception:
             _tag_new(before, uid)
             context.window.scene = working
