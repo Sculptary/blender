@@ -12,7 +12,7 @@ jobs:
         with:
           python-version: "3.11"
       - run: pip install pytest
-      - run: python -m pytest -q tests/test_api.py
+      - run: python -m pytest -q tests
       - run: python build.py
   blender:
     runs-on: ubuntu-latest
@@ -37,3 +37,5 @@ jobs:
         run: '"$RUNNER_TEMP/sculptary-blender/blender-${BLENDER_VERSION}-linux-x64/blender" --background --factory-startup --python-exit-code 1 --python tests/blender_branches.py'
       - name: Native pull request checks
         run: '"$RUNNER_TEMP/sculptary-blender/blender-${BLENDER_VERSION}-linux-x64/blender" --background --factory-startup --python-exit-code 1 --python tests/blender_pulls.py'
+      - name: Native comparison checks
+        run: '"$RUNNER_TEMP/sculptary-blender/blender-${BLENDER_VERSION}-linux-x64/blender" --background --factory-startup --python-exit-code 1 --python tests/blender_comparison.py'

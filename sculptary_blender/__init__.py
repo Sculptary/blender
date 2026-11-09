@@ -20,7 +20,7 @@ from bpy.props import BoolProperty, CollectionProperty, EnumProperty, IntPropert
 from bpy.types import AddonPreferences, Operator, Panel, PropertyGroup, UIList
 
 from .api import Client, SculptaryError
-from . import pulls
+from . import comparison, pulls
 
 ADDON = __package__ or __name__
 
@@ -49,6 +49,7 @@ def _credentials_changed(self, context):
         s.history.clear()
         s.loaded_repo, s.default_branch, s.new_branch_name = "", "", ""
         s.is_empty = False
+        s.compare_base, s.compare_head, s.compare_path, s.compare_base_path = "", "", "", ""
         pulls.clear_review(s, drafts=True)
     finally:
         s.updating = previous
@@ -130,6 +131,10 @@ class SculptaryState(PropertyGroup):
     pull_description: StringProperty(name="Description", maxlen=65536)
     pull_target: StringProperty(name="Into branch")
     pull_draft: BoolProperty(name="Draft")
+    compare_base: StringProperty(name="Base ref")
+    compare_head: StringProperty(name="Head ref", description="Leave blank to use the selected branch")
+    compare_path: StringProperty(name="Model path", description="Leave blank to use the selected model")
+    compare_base_path: StringProperty(name="Previous path", description="Optional path before a rename")
     assets: CollectionProperty(type=SculptaryAsset)
     asset_index: IntProperty()
     history: CollectionProperty(type=SculptaryCommit)
@@ -237,6 +242,8 @@ class SCULPTARY_OT_load_repository(Operator):
                 item.name, item.commit = branch["name"], branch["commit"]
                 item.protected, item.default = branch.get("protected", False), branch.get("default", False)
             s.default_branch, s.is_empty = metadata["default_branch"], metadata["is_empty"]
+            if not same_repo or not s.compare_base:
+                s.compare_base, s.compare_head, s.compare_path, s.compare_base_path = s.default_branch, "", "", ""
             if not s.pull_target:
                 s.pull_target = s.default_branch
             desired = previous if any(branch.name == previous for branch in s.branches) else s.default_branch
@@ -300,6 +307,9 @@ class SCULPTARY_OT_import(Operator):
     bl_description = "Download the selected model and import it into the scene"
 
     def execute(self, context):
+        if comparison.review_info(context.scene):
+            self.report({"WARNING"}, "Close the comparison before importing into your working scene")
+            return {"CANCELLED"}
         s = state(context)
         repo = current_repo(context)
         if not repo or not (0 <= s.asset_index < len(s.assets)):
@@ -366,6 +376,9 @@ class SCULPTARY_OT_publish(Operator):
     bl_description = "Export the scene as GLB and commit it to the selected repository"
 
     def execute(self, context):
+        if comparison.review_info(context.scene):
+            self.report({"WARNING"}, "Close the comparison before publishing your working scene")
+            return {"CANCELLED"}
         s = state(context)
         repo = current_repo(context)
         if not repo:
@@ -518,7 +531,7 @@ CLASSES = (
     SCULPTARY_OT_sign_in, SCULPTARY_OT_refresh, SCULPTARY_OT_load_repository, SCULPTARY_OT_create_branch, SCULPTARY_OT_load_assets, SCULPTARY_OT_import, SCULPTARY_OT_history,
     SCULPTARY_OT_publish, SCULPTARY_OT_create_repo, SCULPTARY_OT_open_in_browser,
     SCULPTARY_UL_repos, SCULPTARY_UL_assets, SCULPTARY_UL_branches, SCULPTARY_PT_main, SCULPTARY_PT_models, SCULPTARY_PT_publish,
-    *pulls.UI_CLASSES,
+    *pulls.UI_CLASSES, *comparison.UI_CLASSES,
 )
 
 
@@ -526,9 +539,11 @@ def register():
     for cls in CLASSES:
         bpy.utils.register_class(cls)
     bpy.types.WindowManager.sculptary = bpy.props.PointerProperty(type=SculptaryState)
+    bpy.types.Scene.sculptary_review_working = bpy.props.PointerProperty(type=bpy.types.Scene)
 
 
 def unregister():
+    del bpy.types.Scene.sculptary_review_working
     del bpy.types.WindowManager.sculptary
     for cls in reversed(CLASSES):
         bpy.utils.unregister_class(cls)
