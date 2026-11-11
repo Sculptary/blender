@@ -103,6 +103,21 @@ so it does not appear in process arguments:
 blender -b --factory-startup --python-exit-code 1 --python tests/blender_review_integration.py -- /private/temp/fixture.json
 ```
 
+The local branch/tag integration runner creates its own private repository and
+account in the sibling platform's running Compose stack, then removes them in
+`finally`. It checks actual model lists, imported geometry, history, comparisons,
+branch creation and publishing with same-named tags pointing to other commits.
+Credentials stay in memory and a private temporary config. Native failure and
+timeout logs are redacted under the platform's ignored `.local/` directory.
+
+```bash
+python tests/run_branch_identity_integration.py --blender /path/to/blender
+```
+
+The defaults are `../platform` and `http://127.0.0.1:18080`; override them with
+`--platform` and `--host` for another local Compose checkout. External hosts and
+non-fixture repositories are refused. Audit records remain after cleanup.
+
 Build the extension zip with `python build.py`.
 
 ## License
