@@ -26,7 +26,8 @@ class Directory:
         return {"full_name": name, "default_branch": "main", "is_empty": False}
 
     def branches(self, name):
-        return [{"name": "main", "commit": "a" * 40}, {"name": "fit/v2", "commit": "b" * 40}]
+        return [{"name": "main", "commit": "a" * 40}, {"name": "fit/v2", "commit": "b" * 40},
+            {"name": "refs/tags/fit/v2", "commit": "b" * 40}, {"name": "a" * 40, "commit": "b" * 40}]
 
     def assets(self, name, ref=None):
         return [{"path": "models/shell.glb", "status": "ready", "metadata": {}}]
@@ -35,7 +36,8 @@ class Directory:
         return {"counts": {"open": 0, "closed": 0, "merged": 0}, "items": []}
 
     def asset_at(self, name, path, ref):
-        side = "base" if ref in ("main", "a" * 40) else "head"
+        # The tag named main points to Head. A branch read must identify heads/main.
+        side = "base" if ref in ("refs/heads/main", "a" * 40, "refs/tags/fit/v2") else "head"
         self.calls.append(("asset", name, path, ref))
         return {"id": side, "commit": ("a" if side == "base" else "b") * 40,
             "path": path, "status": "ready", "standard_preview_url": "/preview?encoding=standard"}
@@ -168,6 +170,21 @@ try:
                 assert (region.view_location, region.view_rotation, region.view_distance, region.view_perspective) == views[area.as_pointer()], "Closing changed the working viewport"
         assert {obj: obj.matrix_world for obj in working.objects} == before
         assert len(bpy.data.objects) == len(before)
+        # An explicit tag remains a tag, while a blank head uses the selected
+        # branch even when its name looks like a tag ref or immutable object ID.
+        for index in (1, 2, 3):
+            state.branch_index = index
+            state.compare_base = "a" * 40 if index == 3 else "refs/tags/fit/v2"
+            state.compare_head = ""
+            assert bpy.ops.sculptary.compare_models() == {"FINISHED"}
+            selected = addon.comparison.review_info(bpy.context.scene)
+            assert selected["base"]["commit"] == "a" * 40 and selected["head"]["commit"] == "b" * 40
+            expected = "refs/heads/" + state.branches[index].name
+            assert ("asset", "fixture/shell", "models/shell.glb", state.compare_base) in directory.calls
+            assert ("asset", "fixture/shell", "models/shell.glb", expected) in directory.calls
+            assert bpy.ops.sculptary.close_comparison() == {"FINISHED"}
+        state.branch_index = 0
+        state.compare_base, state.compare_head = "main", "fit/v2"
         for failure in ("pending", "invalid"):
             directory.failure = failure
             expect_failure(bpy.ops.sculptary.compare_models)

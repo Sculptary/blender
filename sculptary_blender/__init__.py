@@ -4,7 +4,7 @@ scene as GLB, import models and inspect a file's version history."""
 bl_info = {
     "name": "Sculptary",
     "author": "Sculptary",
-    "version": (0, 2, 0),
+    "version": (0, 2, 1),
     "blender": (4, 2, 0),
     "location": "3D Viewport > Sidebar > Sculptary",
     "description": "Version control and collaboration for 3D",
@@ -20,6 +20,7 @@ from bpy.props import BoolProperty, CollectionProperty, EnumProperty, IntPropert
 from bpy.types import AddonPreferences, Operator, Panel, PropertyGroup, UIList
 
 from .api import Client, SculptaryError
+from .revisions import branch_ref
 from . import comparison, pulls, review
 
 ADDON = __package__ or __name__
@@ -131,8 +132,8 @@ class SculptaryState(PropertyGroup):
     pull_description: StringProperty(name="Description", maxlen=65536)
     pull_target: StringProperty(name="Into branch")
     pull_draft: BoolProperty(name="Draft")
-    compare_base: StringProperty(name="Base ref")
-    compare_head: StringProperty(name="Head ref", description="Leave blank to use the selected branch")
+    compare_base: StringProperty(name="Base ref", description="Use a branch name, commit ID or refs/tags/name for a tag")
+    compare_head: StringProperty(name="Head ref", description="Use a branch name, commit ID or refs/tags/name for a tag. Leave blank to use the selected branch")
     compare_path: StringProperty(name="Model path", description="Leave blank to use the selected model")
     compare_base_path: StringProperty(name="Previous path", description="Optional path before a rename")
     review_models: CollectionProperty(type=review.SculptaryReviewModel)
@@ -167,6 +168,11 @@ def current_branch(context) -> str | None:
     if 0 <= s.branch_index < len(s.branches):
         return s.branches[s.branch_index].name
     return s.default_branch if s.is_empty and s.default_branch else None
+
+
+def current_branch_ref(context) -> str | None:
+    branch = current_branch(context)
+    return branch_ref(branch) if branch else None
 
 
 def report_error(op: Operator, exc: Exception) -> set:
@@ -247,7 +253,7 @@ class SCULPTARY_OT_load_repository(Operator):
                 item.protected, item.default = branch.get("protected", False), branch.get("default", False)
             s.default_branch, s.is_empty = metadata["default_branch"], metadata["is_empty"]
             if not same_repo or not s.compare_base:
-                s.compare_base, s.compare_head, s.compare_path, s.compare_base_path = s.default_branch, "", "", ""
+                s.compare_base, s.compare_head, s.compare_path, s.compare_base_path = branch_ref(s.default_branch), "", "", ""
             if not s.pull_target:
                 s.pull_target = s.default_branch
             desired = previous if any(branch.name == previous for branch in s.branches) else s.default_branch
@@ -273,7 +279,7 @@ class SCULPTARY_OT_create_branch(Operator):
             self.report({"WARNING"}, "Select an existing branch and enter a new branch name")
             return {"CANCELLED"}
         try:
-            client().create_branch(repo, name, branch)
+            client().create_branch(repo, name, branch_ref(branch))
         except SculptaryError as exc:
             return report_error(self, exc)
         s.new_branch_name = ""
@@ -294,7 +300,7 @@ class SCULPTARY_OT_load_assets(Operator):
         if not repo or not branch or s.is_empty:
             return {"FINISHED"}
         try:
-            assets = client().assets(repo, ref=branch)
+            assets = client().assets(repo, ref=branch_ref(branch))
         except SculptaryError as exc:
             return report_error(self, exc)
         for a in assets:
@@ -338,7 +344,7 @@ class SCULPTARY_OT_import(Operator):
         try:
             with tempfile.TemporaryDirectory(prefix="sculptary-") as folder:
                 tmp = os.path.join(folder, "model" + ext)
-                client().download_file(repo, path, tmp, ref=branch)
+                client().download_file(repo, path, tmp, ref=branch_ref(branch))
                 importers[ext](filepath=tmp)
         except (SculptaryError, OSError, RuntimeError) as exc:
             return report_error(self, exc)
@@ -354,10 +360,11 @@ class SCULPTARY_OT_history(Operator):
     def execute(self, context):
         s = state(context)
         repo = current_repo(context)
-        if not repo or not (0 <= s.asset_index < len(s.assets)):
+        branch = current_branch_ref(context)
+        if not repo or not branch or not (0 <= s.asset_index < len(s.assets)):
             return {"CANCELLED"}
         try:
-            commits = client().history(repo, s.assets[s.asset_index].path, ref=current_branch(context))
+            commits = client().history(repo, s.assets[s.asset_index].path, ref=branch)
         except SculptaryError as exc:
             return report_error(self, exc)
         s.history.clear()

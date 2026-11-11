@@ -35,7 +35,9 @@ class Directory:
 
     def assets(self, name, ref=None):
         self.calls.append(("assets", name, ref))
-        return [{"path": "models/shell.glb", "status": "ready", "metadata": {"triangle_count": 12}}] if self.refs[name] else []
+        # A same-named tag resolves differently through Git's short-name lookup.
+        path = "models/shell.glb" if ref and ref.startswith("refs/heads/") else "models/tag-only.glb"
+        return [{"path": path, "status": "ready", "metadata": {"triangle_count": 12}}] if self.refs[name] else []
 
     def pull_requests(self, name, state="open"):
         return {"counts": {"open": 0, "closed": 0, "merged": 0}, "items": []}
@@ -74,15 +76,23 @@ try:
         state = bpy.context.window_manager.sculptary
         assert [branch.name for branch in state.branches] == ["main", "fit/v2"]
         assert addon.current_branch(bpy.context) == "main"
+        assert state.compare_base == "refs/heads/main"
+        assert [asset.path for asset in state.assets] == ["models/shell.glb"], "The default branch opened the same-named tag."
         state.branch_index = 1
         assert addon.current_branch(bpy.context) == "fit/v2"
-        assert directory.calls[-1] == ("assets", "fixture/shell", "fit/v2")
+        assert directory.calls[-1] == ("assets", "fixture/shell", "refs/heads/fit/v2")
+        assert [asset.path for asset in state.assets] == ["models/shell.glb"]
         assert bpy.ops.sculptary.history() == {"FINISHED"}
-        assert directory.calls[-1] == ("history", "fixture/shell", "fit/v2")
+        assert directory.calls[-1] == ("history", "fixture/shell", "refs/heads/fit/v2")
+        state.loaded_repo = "fixture/other"
+        previous_calls = len(directory.calls)
+        assert bpy.ops.sculptary.history() == {"CANCELLED"}
+        assert len(directory.calls) == previous_calls, "A stale branch selection fell back to default-branch history."
+        state.loaded_repo = "fixture/shell"
         objects = len(bpy.data.objects)
         assert bpy.ops.sculptary.import_model() == {"FINISHED"}
         downloaded = directory.calls[-1]
-        assert downloaded[:3] == ("download", "fixture/shell", "fit/v2")
+        assert downloaded[:3] == ("download", "fixture/shell", "refs/heads/fit/v2")
         assert not Path(downloaded[3]).exists(), "Import left its temporary download behind."
         assert len(bpy.data.objects) > objects
         assert bpy.ops.sculptary.publish() == {"FINISHED"}
@@ -91,8 +101,17 @@ try:
         assert all(not Path(path).exists() for path in uploaded[3]), "Publish left its temporary export behind."
         state.new_branch_name = "review/dimensions"
         assert bpy.ops.sculptary.create_branch() == {"FINISHED"}
-        assert ("create_branch", "fixture/shell", "review/dimensions", "fit/v2") in directory.calls
+        assert ("create_branch", "fixture/shell", "review/dimensions", "refs/heads/fit/v2") in directory.calls
         assert addon.current_branch(bpy.context) == "review/dimensions"
+        for name in ("refs/tags/v1", "d" * 40):
+            directory.refs["fixture/shell"].append({"name": name, "commit": "b" * 40})
+            assert bpy.ops.sculptary.load_repository(select_branch=name) == {"FINISHED"}
+            assert addon.current_branch(bpy.context) == name
+            assert addon.current_branch_ref(bpy.context) == "refs/heads/" + name
+            assert ("assets", "fixture/shell", "refs/heads/" + name) in directory.calls
+            assert bpy.ops.sculptary.history() == {"FINISHED"}
+            assert directory.calls[-1] == ("history", "fixture/shell", "refs/heads/" + name)
+        assert bpy.ops.sculptary.load_repository(select_branch="review/dimensions") == {"FINISHED"}
         directory.order.reverse()
         assert bpy.ops.sculptary.refresh() == {"FINISHED"}
         assert addon.current_repo(bpy.context) == "fixture/shell" and addon.current_branch(bpy.context) == "review/dimensions"

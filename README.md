@@ -28,6 +28,8 @@ The selected branch applies to browsing, import, history and publishing. Refresh
 preserves your current branch; switching repositories selects that repository's
 default branch. Publishing the first model creates an empty repository's default
 branch. Temporary downloads and exports are removed after each operation.
+Branch selections retain their explicit Git identity, so a tag with the same
+name cannot redirect browsing, import, history or branch creation.
 
 The pull request list shows the server's returned count and total, so its 100-row
 limit is visible. Load an older review directly by number. Changing repositories,
@@ -37,8 +39,10 @@ clears review data and shows the error.
 ## Compare revisions
 
 Select a model, then enter a base ref and a head ref in **Compare revisions**.
-A ref can be a branch or an immutable commit. A blank head uses the selected
-branch. Enter **Previous path** when the file was renamed. Each ref resolves to
+A ref can be a branch name, an immutable commit or `refs/tags/name` for a tag.
+A blank head uses the selected branch. Use `refs/heads/name` to explicitly name
+a branch that resembles a commit ID or another Git ref. Enter **Previous path**
+when the file was renamed. Each ref resolves to
 an immutable asset before downloading its standard GLB preview.
 
 The comparison opens in a separate scene. Both versions retain their authored

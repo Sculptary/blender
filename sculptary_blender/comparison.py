@@ -14,6 +14,7 @@ from bpy.types import Operator, Panel
 from mathutils import Vector
 
 from .api import SculptaryError
+from .revisions import comparison_ref
 from .review_gltf import PreviewError, static_preview
 
 OWNER = "sculptary_review_owner"
@@ -224,7 +225,9 @@ class SCULPTARY_OT_compare_models(Operator):
         app = _app()
         s, repo = app.state(context), app.current_repo(context)
         path = s.compare_path.strip() or (s.assets[s.asset_index].path if 0 <= s.asset_index < len(s.assets) else "")
-        base_ref, head_ref = s.compare_base.strip(), s.compare_head.strip() or app.current_branch(context)
+        branches = [branch.name for branch in s.branches]
+        base_ref = comparison_ref(s.compare_base.strip(), branches)
+        head_ref = comparison_ref(s.compare_head.strip(), branches) if s.compare_head.strip() else app.current_branch_ref(context)
         if not repo or not path or not base_ref or not head_ref:
             self.report({"WARNING"}, "Choose a model and enter base and head refs")
             return {"CANCELLED"}

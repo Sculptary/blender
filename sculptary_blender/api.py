@@ -11,7 +11,7 @@ import uuid
 from typing import Any
 from urllib import error, parse, request
 
-USER_AGENT = "sculptary-blender/0.2.0"
+USER_AGENT = "sculptary-blender/0.2.1"
 
 
 class SculptaryError(Exception):
